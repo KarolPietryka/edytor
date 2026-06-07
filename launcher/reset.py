@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
             pyc.unlink(missing_ok=True)
 
     print("Starting stack...")
-    return start_main([str(root), *extra])
+    return start_main([str(root), *extra, "--no-browser"])
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@ import os
 import socket
 import subprocess
 import sys
+import time
+import webbrowser
 from pathlib import Path
 
 from launcher.bootstrap import load_env_config, resolve_root
@@ -21,6 +23,24 @@ def port_open(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def wait_for_port(port: int, timeout_s: float = 15.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if port_open(port):
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def open_fe_in_browser(port: int) -> None:
+    url = f"http://localhost:{port}"
+    if wait_for_port(port):
+        webbrowser.open(url)
+        print(f"Opened {url}")
+    else:
+        print(f"WARN: FE not ready — open manually: {url}")
 
 
 def spawn_server_console(root: Path, title: str, command: list[str]) -> None:
@@ -81,6 +101,8 @@ def start_stack(root: Path) -> tuple[int | None, int | None]:
 
 def main(argv: list[str] | None = None) -> int:
     raw = list(argv if argv is not None else sys.argv[1:])
+    open_browser = "--no-browser" not in raw
+    raw = [arg for arg in raw if arg != "--no-browser"]
     root = resolve_root(raw)
     env_config = load_env_config(root)
 
@@ -99,7 +121,10 @@ def main(argv: list[str] | None = None) -> int:
         print("DEBUG=true // ai.md + snapshoty data/ai/ai_XXX.md")
     else:
         print("DEBUG=false // tylko data/ai.md")
-    print(f"http://localhost:{FE_PORT}")
+    url = f"http://localhost:{FE_PORT}"
+    print(url)
+    if open_browser:
+        open_fe_in_browser(FE_PORT)
     return 0
 
 
