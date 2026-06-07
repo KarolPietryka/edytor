@@ -10,11 +10,20 @@ FINAL_PLACEHOLDER = "Odpowiedz z AI. Obudz sie "
 AI_FORMAT_HINT = (
     'Wprowadz zmiany i oddaj odpowiedz WYLACZNIE w tym formacie.\n'
     'W Final version wpisz TYLKO zmieniony tekst z sekcji w podwojnych cudzyslowach '
-    '(tekst uzytkownika). Bez wytycznych, bez komentarzy, bez instrukcji.\n\n'
+    '(tekst uzytkownika). Bez wytycznych, bez komentarzy, bez instrukcji.\n'
+    'NIE powtarzaj sekcji komentarza, szablonu ani instrukcji w Final version.\n\n'
     'Final version:\n"\n<tutaj caly zmieniony tekst>\n"'
 )
 
 WYTYCZNE_LEAK_PREFIX = "Ogolne wytyczne dla Ciebie jako edytora:"
+COMMENT_LEAK_PATTERN = re.compile(r"komentarz_\d{3}:", re.IGNORECASE)
+TEMPLATE_LEAK_MARKERS = (
+    "To powyzszego uzytkownik dodal Ci komentarz",
+    "Zastosuj go do wskazanego fragmentu oryginalnego tekstu:",
+    WYTYCZNE_LEAK_PREFIX,
+    "Wprowadz zmiany i oddaj odpowiedz",
+    "Jestes edytorem testu",
+)
 
 
 def _extract_quoted_block(chunk: str) -> str:
@@ -45,6 +54,30 @@ def _extract_quoted_block(chunk: str) -> str:
     return chunk.strip()
 
 
+def strip_template_leaks(text: str) -> str:
+    t = text
+    cut_at = []
+    for marker in TEMPLATE_LEAK_MARKERS:
+        idx = t.lower().find(marker.lower())
+        if idx != -1:
+            cut_at.append(idx)
+    match = COMMENT_LEAK_PATTERN.search(t)
+    if match:
+        cut_at.append(match.start())
+    if cut_at:
+        t = t[:min(cut_at)].rstrip()
+    t = re.sub(r'\n*""\s*$', '', t)
+    return t.strip()
+
+
+def has_template_leak(text: str) -> bool:
+    lower = text.lower()
+    for marker in TEMPLATE_LEAK_MARKERS:
+        if marker.lower() in lower:
+            return True
+    return bool(COMMENT_LEAK_PATTERN.search(text))
+
+
 def sanitize_final_text(text: str) -> str:
     t = text.strip()
     if not t:
@@ -73,7 +106,7 @@ def sanitize_final_text(text: str) -> str:
     if t.endswith('"'):
         t = t[:-1].rstrip()
 
-    return t.strip()
+    return strip_template_leaks(t)
 
 
 def extract_final_version(response: str) -> str:
@@ -102,10 +135,19 @@ def extract_final_version(response: str) -> str:
 def _fill_template(template: str, tekst: str, komentarz: str, wytyczne: str) -> str:
     k = komentarz if komentarz else "(brak komentarzy)"
     w = wytyczne if wytyczne else "(brak wytycznych)"
+    # Najpierw sloty szablonu → sentinels, potem wstaw treść.
+    # Inaczej literalne {komentarze}/{tekst} w tekście usera łapią globalny replace.
+    filled = (
+        template
+        .replace("{tekst}", "\x00TEKST\x00", 1)
+        .replace("{komentarze}", "\x00KOM\x00", 1)
+        .replace("{wytyczne}", "\x00WYT\x00", 1)
+    )
     return (
-        template.replace("{tekst}", tekst)
-        .replace("{komentarze}", k)
-        .replace("{wytyczne}", w)
+        filled
+        .replace("\x00TEKST\x00", tekst)
+        .replace("\x00KOM\x00", k)
+        .replace("\x00WYT\x00", w)
     )
 
 
@@ -171,6 +213,8 @@ def _run_step(
         return {"ok": False, "error": "AI zwrocilo pusty Final version"}
     if final_text.startswith(WYTYCZNE_LEAK_PREFIX):
         return {"ok": False, "error": "AI zwrocilo wytyczne zamiast tekstu — sprobuj ponownie"}
+    if has_template_leak(final_text):
+        return {"ok": False, "error": "AI zwrocilo szablon zamiast tekstu — sprobuj ponownie"}
 
     complete_md = build_ai_md(template, tekst, komentarz, wytyczne, final_text)
     ai_path = write_ai_md(data_dir, complete_md, debug)

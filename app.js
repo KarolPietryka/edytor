@@ -22,6 +22,8 @@ let currentDraftFile = null;
 const DRAWER_WIDTH = 320;
 const VIEWPORT_GAP = 10;
 const DEFAULT_TERMINAL_TITLE = 'ICE_BYPASS // mem:draft_01 // ♪';
+const SELECT_ALL_LABEL = '<all>';
+const SELECT_ALL_PAYLOAD = '<Wszystko>';
 
 function setStatus(message, type) {
   statusEl.textContent = message;
@@ -257,6 +259,11 @@ function getSelectionText(start, end) {
   return draftInput.value.substring(start, end).replace(/^\s+|\s+$/g, '');
 }
 
+function isFullDraftSelection(start, end) {
+  const len = draftInput.value.length;
+  return len > 0 && start === 0 && end === len;
+}
+
 function showCommentPopup() {
   const start = draftInput.selectionStart;
   const end = draftInput.selectionEnd;
@@ -269,6 +276,19 @@ function showCommentPopup() {
     return;
   }
 
+  if (isFullDraftSelection(start, end)) {
+    currentSelection = {
+      text: SELECT_ALL_PAYLOAD,
+      label: SELECT_ALL_LABEL,
+      start: start,
+      end: end,
+    };
+    commentPopupQuote.textContent = SELECT_ALL_LABEL;
+    positionCommentPopup(getSelectionAnchor(start, end));
+    commentInput.focus();
+    return;
+  }
+
   const text = getSelectionText(start, end);
 
   if (!text) {
@@ -276,7 +296,7 @@ function showCommentPopup() {
     return;
   }
 
-  currentSelection = { text: text, start: start, end: end };
+  currentSelection = { text: text, label: text, start: start, end: end };
 
   const preview = text.length > 100 ? text.slice(0, 100) + '…' : text;
   commentPopupQuote.textContent = preview;
@@ -350,6 +370,7 @@ async function sendComment() {
   }
 
   const selectionText = currentSelection.text;
+  const selectionLabel = currentSelection.label || selectionText;
   const commentText = commentInput.value.trim();
   if (!commentText) {
     commentInput.focus();
@@ -410,7 +431,7 @@ async function sendComment() {
       setStatus('[OK] draft + comment // ' + data.file, 'success');
     }
 
-    addCommentToDrawer(selectionText, commentText);
+    addCommentToDrawer(selectionLabel, commentText);
     commentInput.value = '';
     clearDraftSelection();
     hideCommentPopup();
@@ -440,6 +461,10 @@ draftInput.addEventListener('keydown', function (e) {
 draftInput.addEventListener('mouseup', handleSelection);
 draftInput.addEventListener('select', handleSelection);
 draftInput.addEventListener('keyup', function (e) {
+  if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+    handleSelection();
+    return;
+  }
   if (e.shiftKey || e.key === 'Shift' || e.key.startsWith('Arrow')) {
     handleSelection();
   }
