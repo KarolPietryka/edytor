@@ -313,6 +313,170 @@ function debounce(fn, ms) {
   };
 }
 
+function looksLikeMarkdown(text) {
+  return /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/m.test(text);
+}
+
+function inlineToMarkdown(node) {
+  var result = '';
+  node.childNodes.forEach(function (child) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      result += child.textContent;
+      return;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+    var tag = child.tagName.toLowerCase();
+    var inner = inlineToMarkdown(child);
+    if (tag === 'strong' || tag === 'b') {
+      result += '**' + inner + '**';
+    } else if (tag === 'em' || tag === 'i') {
+      result += '*' + inner + '*';
+    } else if (tag === 'code') {
+      result += '`' + inner + '`';
+    } else if (tag === 'a') {
+      var href = child.getAttribute('href') || '';
+      result += href ? '[' + inner + '](' + href + ')' : inner;
+    } else if (tag === 'br') {
+      result += '\n';
+    } else {
+      result += inner;
+    }
+  });
+  return result;
+}
+
+function directElements(node, tagName) {
+  var items = [];
+  node.childNodes.forEach(function (child) {
+    if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === tagName) {
+      items.push(child);
+    }
+  });
+  return items;
+}
+
+function indentMarkdown(text, spaces) {
+  var pad = new Array(spaces + 1).join(' ');
+  return text.split('\n').map(function (line) {
+    return pad + line;
+  }).join('\n');
+}
+
+function listToMarkdown(listNode, ordered) {
+  var items = [];
+  var index = 1;
+  directElements(listNode, 'li').forEach(function (li) {
+    var prefix = ordered ? index + '. ' : '- ';
+    var clone = li.cloneNode(true);
+    directElements(clone, 'ul').concat(directElements(clone, 'ol')).forEach(function (nested) {
+      nested.remove();
+    });
+    var line = prefix + inlineToMarkdown(clone).trim();
+    directElements(li, 'ul').forEach(function (nested) {
+      line += '\n' + indentMarkdown(listToMarkdown(nested, false), 2);
+    });
+    directElements(li, 'ol').forEach(function (nested) {
+      line += '\n' + indentMarkdown(listToMarkdown(nested, true), 2);
+    });
+    items.push(line);
+    index += 1;
+  });
+  return items.join('\n');
+}
+
+function blockToMarkdown(node) {
+  var parts = [];
+  node.childNodes.forEach(function (child) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      var text = child.textContent.replace(/\s+/g, ' ').trim();
+      if (text) {
+        parts.push(text);
+      }
+      return;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+    var tag = child.tagName.toLowerCase();
+    if (tag === 'p' || tag === 'div') {
+      parts.push(inlineToMarkdown(child).trim());
+    } else if (tag === 'br') {
+      parts.push('');
+    } else if (/^h[1-6]$/.test(tag)) {
+      var level = parseInt(tag.charAt(1), 10);
+      parts.push(new Array(level + 1).join('#') + ' ' + inlineToMarkdown(child).trim());
+    } else if (tag === 'ul') {
+      parts.push(listToMarkdown(child, false));
+    } else if (tag === 'ol') {
+      parts.push(listToMarkdown(child, true));
+    } else if (tag === 'blockquote') {
+      parts.push(blockToMarkdown(child).trim().split('\n').map(function (line) {
+        return '> ' + line;
+      }).join('\n'));
+    } else if (tag === 'pre') {
+      parts.push('```\n' + child.textContent.replace(/\r\n/g, '\n').trim() + '\n```');
+    } else if (tag === 'li') {
+      parts.push(inlineToMarkdown(child).trim());
+    } else {
+      parts.push(blockToMarkdown(child));
+    }
+  });
+  return parts.filter(function (part) {
+    return part !== '';
+  }).join('\n\n');
+}
+
+function htmlToMarkdown(html) {
+  if (!html || !html.trim()) {
+    return '';
+  }
+  var container = document.createElement('div');
+  container.innerHTML = html;
+  return blockToMarkdown(container).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function insertTextAtSelection(textarea, text) {
+  var start = textarea.selectionStart;
+  var end = textarea.selectionEnd;
+  var before = textarea.value.substring(0, start);
+  var after = textarea.value.substring(end);
+  textarea.value = before + text + after;
+  var pos = start + text.length;
+  textarea.setSelectionRange(pos, pos);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function getPasteMarkdown(event) {
+  var clipboard = event.clipboardData;
+  if (!clipboard) {
+    return null;
+  }
+  var plain = clipboard.getData('text/plain').replace(/\r\n/g, '\n');
+  var html = clipboard.getData('text/html');
+  if (plain && looksLikeMarkdown(plain)) {
+    return plain;
+  }
+  if (html && html.trim()) {
+    var md = htmlToMarkdown(html);
+    if (md) {
+      return md;
+    }
+  }
+  return null;
+}
+
+function handleMarkdownPaste(event) {
+  var text = getPasteMarkdown(event);
+  if (!text) {
+    return;
+  }
+  event.preventDefault();
+  insertTextAtSelection(event.target, text);
+  syncDraftClearBtn();
+}
+
 function handleSelection() {
   requestAnimationFrame(showCommentPopup);
 }
@@ -451,6 +615,10 @@ if (draftClearBtn) {
 }
 
 draftInput.addEventListener('input', syncDraftClearBtn);
+draftInput.addEventListener('paste', handleMarkdownPaste);
+if (wytyczneInput) {
+  wytyczneInput.addEventListener('paste', handleMarkdownPaste);
+}
 draftInput.addEventListener('keydown', function (e) {
   if (e.ctrlKey && e.key === 'Enter') {
     e.preventDefault();
