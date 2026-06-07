@@ -8,28 +8,95 @@ AI_FILE_PATTERN = re.compile(r"^ai_(\d{3})\.md$")
 FINAL_VERSION_MARKER = "Final version:"
 FINAL_PLACEHOLDER = "Odpowiedz z AI. Obudz sie "
 AI_FORMAT_HINT = (
-    'Wprowadz zmiany i oddaj odpowiedz WYLACZNIE w tym formacie:\n\n'
+    'Wprowadz zmiany i oddaj odpowiedz WYLACZNIE w tym formacie.\n'
+    'W Final version wpisz TYLKO zmieniony tekst z sekcji w podwojnych cudzyslowach '
+    '(tekst uzytkownika). Bez wytycznych, bez komentarzy, bez instrukcji.\n\n'
     'Final version:\n"\n<tutaj caly zmieniony tekst>\n"'
 )
 
-def extract_final_version(response: str) -> str:
-    """Wyciąga treść z ostatniego bloku Final version (do ostatniego zamykającego \")."""
-    lower = response.lower()
-    marker = FINAL_VERSION_MARKER.lower()
-    idx = lower.rfind(marker)
-    if idx == -1:
-        return response.strip()
+WYTYCZNE_LEAK_PREFIX = "Ogolne wytyczne dla Ciebie jako edytora:"
 
-    chunk = response[idx + len(FINAL_VERSION_MARKER):].lstrip()
+
+def _extract_quoted_block(chunk: str) -> str:
+    chunk = chunk.lstrip()
     if chunk.startswith('"'):
         chunk = chunk[1:]
     chunk = chunk.lstrip("\r\n")
 
-    last_close = chunk.rfind('\n"')
-    if last_close != -1:
-        return chunk[:last_close].strip()
+    close_idx = -1
+    pos = 0
+    while pos < len(chunk):
+        nl = chunk.find("\n", pos)
+        if nl == -1:
+            break
+        line_end = nl + 1
+        if line_end < len(chunk) and chunk[line_end] == '"':
+            tail = chunk[line_end + 1:].strip()
+            if not tail:
+                close_idx = nl
+        pos = line_end
+
+    if close_idx != -1:
+        return chunk[:close_idx].strip()
+
+    if chunk.endswith('"'):
+        return chunk[:-1].strip()
 
     return chunk.strip()
+
+
+def sanitize_final_text(text: str) -> str:
+    t = text.strip()
+    if not t:
+        return t
+
+    while t.startswith(WYTYCZNE_LEAK_PREFIX):
+        end = t.find('""', len(WYTYCZNE_LEAK_PREFIX))
+        if end == -1:
+            break
+        t = t[end + 2:].lstrip()
+
+    while True:
+        stripped = False
+        for prefix in (
+            "Wprowadz zmiany i oddaj odpowiedz WYLACZNIE w tym formacie:",
+            FINAL_VERSION_MARKER,
+        ):
+            if t.lower().startswith(prefix.lower()):
+                t = t[len(prefix):].lstrip()
+                stripped = True
+        if not stripped:
+            break
+
+    if t.startswith('"'):
+        t = t[1:].lstrip("\r\n")
+    if t.endswith('"'):
+        t = t[:-1].rstrip()
+
+    return t.strip()
+
+
+def extract_final_version(response: str) -> str:
+    """Wyciąga ostatni sensowny blok Final version z odpowiedzi AI."""
+    parts = re.split(r"Final version:\s*", response, flags=re.IGNORECASE)
+    if len(parts) < 2:
+        return sanitize_final_text(response.strip())
+
+    candidates = []
+    for part in parts[1:]:
+        block = sanitize_final_text(_extract_quoted_block(part))
+        if not block:
+            continue
+        if "<tutaj caly zmieniony tekst>" in block.lower():
+            continue
+        if block.lower().startswith("odpowiedz z ai"):
+            continue
+        candidates.append(block)
+
+    if candidates:
+        return candidates[-1]
+
+    return sanitize_final_text(_extract_quoted_block(parts[-1]))
 
 
 def _fill_template(template: str, tekst: str, komentarz: str, wytyczne: str) -> str:
@@ -100,6 +167,11 @@ def _run_step(
         return {"ok": False, "error": str(err)}
 
     final_text = extract_final_version(response)
+    if not final_text.strip():
+        return {"ok": False, "error": "AI zwrocilo pusty Final version"}
+    if final_text.startswith(WYTYCZNE_LEAK_PREFIX):
+        return {"ok": False, "error": "AI zwrocilo wytyczne zamiast tekstu — sprobuj ponownie"}
+
     complete_md = build_ai_md(template, tekst, komentarz, wytyczne, final_text)
     ai_path = write_ai_md(data_dir, complete_md, debug)
 

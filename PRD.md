@@ -9,15 +9,45 @@
 
 ## Uruchomienie
 
+**Dev (Cursor / repo):**
+
 ```powershell
 python .cursor/skills/edytor/scripts/start_edytor.py .
 ```
 
-Restart (kill + start):
+**Windows — okna CMD (zalecane lokalnie):**
 
 ```powershell
-python .cursor/skills/reset/scripts/reset_edytor.py .
+Edytor.cmd
 ```
+
+albo:
+
+```powershell
+python -m launcher.start .
+```
+
+Restart:
+
+```powershell
+EdytorReset.cmd
+python -m launcher.reset . --debug
+```
+
+Otwierają się **dwa osobne okna CMD** (BE :3000, FE :8888). Zamknięcie okna = stop serwera.
+
+## EXE (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build/build_exe.ps1
+```
+
+W `dist/`: `Edytor.exe`, `EdytorBE.exe`, `EdytorFE.exe` — trzymaj w jednym folderze.
+
+- `Edytor.exe` — launcher (BE + FE w osobnych oknach CMD)
+- `EdytorBE.exe` / `EdytorFE.exe` — osobne okna CMD (zastrzel = zamknij okno)
+- Klucz AI: `%LOCALAPPDATA%\Edytor\.env` (wzoruj na `.env.example`)
+- Drafty: `backend/data/drafts/` obok exe
 
 ## Pętla AI (`POST /api/ai`)
 

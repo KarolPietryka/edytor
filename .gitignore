@@ -16,3 +16,6 @@ backend/data/final_v.md
 
 System.md
 .env
+
+build/pyinstaller/
+dist/

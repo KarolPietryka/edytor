@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import date
 from pathlib import Path
@@ -11,14 +12,13 @@ from draft_utils import extract_draft_parts, has_comment_blocks
 from env_config import is_debug, load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = BASE_DIR.parent
+WORKSPACE_ROOT = Path(os.environ.get("EDYTOR_ROOT", str(BASE_DIR.parent)))
 ENV_FILE = load_dotenv(WORKSPACE_ROOT)
 
 app = Flask(__name__)
 CORS(app)
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = Path(os.environ.get("EDYTOR_DATA", str(BASE_DIR / "data")))
 DRAFTS_DIR = DATA_DIR / "drafts"
-WYTYCZNE_PATH = DATA_DIR / "wytyczne.md"
 TEMPLATE_AI_PATH = DATA_DIR / "template_ai.md"
 FILE_PATTERN = re.compile(r"^(\d{2})_(\d{4}_\d{2}_\d{2})\.md$")
 CONV_PATTERN = re.compile(r"conversation:\s*(\d{3})_(\d{4}_\d{2}_\d{2})")
@@ -122,23 +122,6 @@ def draft_path_abs(path):
     return path.resolve().as_posix()
 
 
-def save_wytyczne(text):
-    text = (text or "").strip()
-    if not text:
-        return
-    WYTYCZNE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    WYTYCZNE_PATH.write_text(text, encoding="utf-8")
-
-
-def load_wytyczne():
-    if not WYTYCZNE_PATH.exists():
-        return ""
-    try:
-        return WYTYCZNE_PATH.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
-
-
 def build_draft_content(text, conversation_id, day):
     return f"""---
 conversation: {conversation_id}
@@ -209,13 +192,10 @@ def append_comment_to_file(path, comment, selection):
 def create_draft():
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
-    wytyczne = (data.get("wytyczne") or "").strip()
-
     if not text:
         return jsonify({"error": "empty text"}), 400
 
     try:
-        save_wytyczne(wytyczne)
         result = write_draft(text)
     except OSError as err:
         return jsonify({"error": str(err)}), 500
@@ -235,15 +215,8 @@ def add_comment():
     text = (data.get("text") or "").strip()
     comment = (data.get("comment") or "").strip()
     selection = (data.get("selection") or "").strip()
-    wytyczne = (data.get("wytyczne") or "").strip()
-
     if not comment or not selection:
         return jsonify({"error": "missing fields"}), 400
-
-    try:
-        save_wytyczne(wytyczne)
-    except OSError as err:
-        return jsonify({"error": str(err)}), 500
 
     created = False
     conversation_id = None
@@ -291,8 +264,6 @@ def add_comment():
 def generate_ai():
     data = request.get_json(silent=True) or {}
     wytyczne = (data.get("wytyczne") or "").strip()
-    if not wytyczne:
-        wytyczne = load_wytyczne()
 
     draft_path = latest_draft_path_for_ai()
     if not draft_path:
@@ -302,7 +273,6 @@ def generate_ai():
         return jsonify({"error": "template not found"}), 500
 
     try:
-        save_wytyczne(wytyczne)
         draft_content = draft_path.read_text(encoding="utf-8")
         template = TEMPLATE_AI_PATH.read_text(encoding="utf-8")
         result = run_ai_loop(

@@ -205,6 +205,14 @@
       border-left-color: var(--amber);
     }
 
+    .textarea-wrap {
+      position: relative;
+    }
+
+    .textarea-wrap textarea {
+      padding-right: 2.25rem;
+    }
+
     .actions {
       margin-top: 1.25rem;
       display: flex;
@@ -248,6 +256,55 @@
     button:disabled {
       opacity: 0.4;
       cursor: not-allowed;
+    }
+
+    .textarea-wrap .textarea-clear {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      padding: 0;
+      margin: 0;
+      border: 1px solid rgba(255, 94, 196, 0.65);
+      border-radius: 0;
+      background: rgba(30, 18, 69, 0.95);
+      color: var(--magenta);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.1rem;
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: 0;
+      text-transform: none;
+      clip-path: none;
+      box-shadow: 0 0 8px rgba(255, 94, 196, 0.2);
+      cursor: pointer;
+      opacity: 0.85;
+      filter: none;
+      transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .textarea-wrap .textarea-clear:hover,
+    .textarea-wrap .textarea-clear:focus {
+      opacity: 1;
+      color: var(--cyan);
+      border-color: rgba(110, 250, 255, 0.7);
+      background: rgba(45, 28, 82, 0.98);
+      filter: none;
+      outline: none;
+    }
+
+    .textarea-wrap .textarea-clear:disabled {
+      opacity: 0.35;
+      color: var(--dim);
+      border-color: rgba(168, 158, 200, 0.35);
+      cursor: default;
+      pointer-events: none;
+      filter: none;
     }
 
     .status {
@@ -478,7 +535,10 @@
       </div>
       <div class="terminal__body">
         <textarea id="wytyczne" rows="3" placeholder="// ogólne wytyczne dla edytora..."></textarea>
-        <textarea id="draft" rows="20" placeholder="// purple haze in the matrix... wpisz transmisję"></textarea>
+        <div class="textarea-wrap">
+          <textarea id="draft" rows="20" placeholder="// purple haze in the matrix... wpisz transmisję"></textarea>
+          <button id="draft-clear-btn" type="button" class="textarea-clear" title="Wyczyść bufor" aria-label="Wyczyść bufor">×</button>
+        </div>
         <div class="actions">
           <span class="actions__hint">proto: HTTP POST // port: 3000 // magic carpet ride</span>
           <div class="actions__buttons">
@@ -511,6 +571,6 @@
   </div>
 
   <div id="textarea-mirror" aria-hidden="true"></div>
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

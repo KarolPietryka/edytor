@@ -3,6 +3,7 @@ const COMMENT_API_URL = 'http://localhost:3000/api/comment';
 const AI_API_URL = 'http://localhost:3000/api/ai';
 
 const draftInput = document.getElementById('draft');
+const draftClearBtn = document.getElementById('draft-clear-btn');
 const wytyczneInput = document.getElementById('wytyczne');
 const sendBtn = document.getElementById('send-btn');
 const aiBtn = document.getElementById('ai-btn');
@@ -29,6 +30,23 @@ function setStatus(message, type) {
 
 function setDraftPath(path) {
   terminalTitle.textContent = path || DEFAULT_TERMINAL_TITLE;
+}
+
+function syncDraftClearBtn() {
+  if (!draftClearBtn) {
+    return;
+  }
+  draftClearBtn.disabled = !draftInput.value.length;
+}
+
+function clearDraftBuffer() {
+  if (!draftInput.value.length) {
+    return;
+  }
+  draftInput.value = '';
+  syncDraftClearBtn();
+  hideCommentPopup();
+  draftInput.focus();
 }
 
 function getWytycznePayload() {
@@ -103,6 +121,7 @@ async function sendAi() {
 
     if (data.text) {
       draftInput.value = data.text;
+      syncDraftClearBtn();
     }
     if (data.draft_file) {
       currentDraftFile = data.draft_file;
@@ -406,6 +425,11 @@ async function sendComment() {
 sendBtn.addEventListener('click', sendDraft);
 aiBtn.addEventListener('click', sendAi);
 
+if (draftClearBtn) {
+  draftClearBtn.addEventListener('click', clearDraftBuffer);
+}
+
+draftInput.addEventListener('input', syncDraftClearBtn);
 draftInput.addEventListener('keydown', function (e) {
   if (e.ctrlKey && e.key === 'Enter') {
     e.preventDefault();
@@ -449,3 +473,5 @@ document.addEventListener('mousedown', function (e) {
 });
 
 window.addEventListener('resize', repositionPopup);
+
+syncDraftClearBtn();

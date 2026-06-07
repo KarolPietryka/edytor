@@ -15,24 +15,43 @@ def apply_debug_argv(argv: list[str]) -> list[str]:
     return argv
 
 
+def _apply_env_file(path: Path) -> None:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            os.environ[key] = val
+
+
 def load_dotenv(workspace_root: Path) -> Path | None:
-    candidates = [
+    # --debug z launchera (reset --debug) nie może zostać nadpisane przez .env
+    pinned_debug = os.environ.get("DEBUG")
+
+    candidates = []
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        candidates.append(Path(local) / "Edytor" / ".env")
+    candidates.extend([
         workspace_root / ".env",
         workspace_root / "backend" / ".env",
-    ]
+    ])
+
+    primary = None
     for path in candidates:
         if not path.exists():
             continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                continue
-            key, val = line.split("=", 1)
-            key = key.strip()
-            val = val.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = val
-        return path
-    return None
+        _apply_env_file(path)
+        if path in (workspace_root / ".env", workspace_root / "backend" / ".env"):
+            primary = path
+        elif primary is None:
+            primary = path
+
+    if pinned_debug:
+        os.environ["DEBUG"] = pinned_debug
+    return primary
