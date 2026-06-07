@@ -34,15 +34,30 @@ Workspace root: `index.html`, `app.js`, `backend/server.py`, `.venv`.
 python .cursor/skills/edytor/scripts/start_edytor.py .
 ```
 
-2. Jeśli port zajęty — skrypt i tak raportuje; nie zabijaj procesów bez potrzeby.
-3. Jeśli brak `.venv` — `python -m venv .venv` + `pip install -r backend/requirements.txt`.
-4. Kontynuuj zadanie usera (edycja kodu, debug, itd.).
+Tryb debug AI (numerowane odpowiedzi w `data/ai/`):
+
+```powershell
+python .cursor/skills/edytor/scripts/start_edytor.py . --debug
+```
+
+Albo w `.env`: `DEBUG=true` (szczegóły w `PRD.md`).
+
+2. Skrypt zapisuje PIDy do **`System.md`** w root (BE :3000, FE :8888).
+3. Jeśli port zajęty — skrypt i tak raportuje i aktualizuje PID z portu; nie zabijaj procesów bez potrzeby (użyj skill **reset**).
+4. Jeśli brak `.venv` — `python -m venv .venv` + `pip install -r backend/requirements.txt`.
+5. Kontynuuj zadanie usera (edycja kodu, debug, itd.).
 
 ## Ręczny fallback
 
 ```powershell
 .\.venv\Scripts\python.exe backend\server.py
 .\.venv\Scripts\python.exe -m http.server 8888
+```
+
+Z debugiem:
+
+```powershell
+$env:DEBUG="true"; .\.venv\Scripts\python.exe backend\server.py
 ```
 
 ## Nie zmieniaj bez prośby

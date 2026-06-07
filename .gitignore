@@ -8,3 +8,11 @@ __pycache__/
 *.pyc
 
 backend/data/drafts/*.md
+backend/data/ai.md
+backend/data/ai/*.md
+backend/data/final_v/*.md
+backend/data/wytyczne.md
+backend/data/final_v.md
+
+System.md
+.env

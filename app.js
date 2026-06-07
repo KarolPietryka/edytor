@@ -1,8 +1,13 @@
 const API_URL = 'http://localhost:3000/api/draft';
+const COMMENT_API_URL = 'http://localhost:3000/api/comment';
+const AI_API_URL = 'http://localhost:3000/api/ai';
 
 const draftInput = document.getElementById('draft');
+const wytyczneInput = document.getElementById('wytyczne');
 const sendBtn = document.getElementById('send-btn');
+const aiBtn = document.getElementById('ai-btn');
 const statusEl = document.getElementById('status');
+const terminalTitle = document.getElementById('terminal-title');
 const commentPopup = document.getElementById('comment-popup');
 const commentPopupQuote = document.getElementById('comment-popup-quote');
 const commentInput = document.getElementById('comment-input');
@@ -11,13 +16,26 @@ const commentsList = document.getElementById('comments-list');
 const textareaMirror = document.getElementById('textarea-mirror');
 
 let currentSelection = null;
+let currentDraftFile = null;
 
 const DRAWER_WIDTH = 320;
 const VIEWPORT_GAP = 10;
+const DEFAULT_TERMINAL_TITLE = 'ICE_BYPASS // mem:draft_01 // ♪';
 
 function setStatus(message, type) {
   statusEl.textContent = message;
   statusEl.className = 'status' + (type ? ' status--' + type : '');
+}
+
+function setDraftPath(path) {
+  terminalTitle.textContent = path || DEFAULT_TERMINAL_TITLE;
+}
+
+function getWytycznePayload() {
+  if (!wytyczneInput) {
+    return { wytyczne: '' };
+  }
+  return { wytyczne: wytyczneInput.value.trim() };
 }
 
 async function sendDraft() {
@@ -37,18 +55,68 @@ async function sendDraft() {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(Object.assign({ text: text }, getWytycznePayload())),
     });
 
     if (!response.ok) {
       throw new Error('HTTP ' + response.status);
     }
 
-    setStatus('[OK] transmission complete', 'success');
+    const data = await response.json();
+    currentDraftFile = data.file;
+    setDraftPath(data.draft_path);
+    setStatus('[OK] transmission complete // ' + data.file, 'success');
   } catch (err) {
     setStatus('[ERR] uplink failed // ' + err.message, 'error');
   } finally {
     sendBtn.disabled = false;
+  }
+}
+
+async function sendAi() {
+  aiBtn.disabled = true;
+  setStatus('[..] AI loop in progress...', 'info');
+
+  try {
+    const response = await fetch(AI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(getWytycznePayload()),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(function () {
+        return {};
+      });
+      var msg = errData.error || 'HTTP ' + response.status;
+      if (errData.steps && errData.steps.length) {
+        msg += ' // ' + errData.steps[errData.steps.length - 1].comment_id;
+      }
+      throw new Error(msg);
+    }
+
+    const data = await response.json();
+    const done = (data.steps || []).filter(function (s) { return s.status === 'done'; }).length;
+    const total = data.total || 0;
+
+    if (data.text) {
+      draftInput.value = data.text;
+    }
+    if (data.draft_file) {
+      currentDraftFile = data.draft_file;
+    }
+    setDraftPath(data.draft_path);
+
+    clearCommentsDrawer();
+    hideCommentPopup();
+
+    setStatus('[OK] AI loop done // ' + data.draft_file + ' (' + done + '/' + total + ' comments)', 'success');
+  } catch (err) {
+    setStatus('[ERR] AI uplink failed // ' + err.message, 'error');
+  } finally {
+    aiBtn.disabled = false;
   }
 }
 
@@ -69,17 +137,28 @@ function getCaretCoordinates(position) {
   syncMirrorStyles();
   const rect = draftInput.getBoundingClientRect();
   textareaMirror.style.width = rect.width + 'px';
+  textareaMirror.style.height = draftInput.clientHeight + 'px';
+  textareaMirror.style.maxHeight = draftInput.clientHeight + 'px';
 
   const value = draftInput.value;
   const before = value.substring(0, position);
-  const after = value.substring(position) || '.';
+  const after = value.substring(position);
 
   textareaMirror.textContent = '';
   textareaMirror.appendChild(document.createTextNode(before));
+
   const marker = document.createElement('span');
-  marker.textContent = after[0];
+  if (!after.length) {
+    marker.textContent = '.';
+  } else if (after[0] === '\n') {
+    textareaMirror.appendChild(document.createTextNode('\n'));
+    marker.textContent = '\u200b';
+  } else {
+    marker.textContent = after[0];
+  }
   textareaMirror.appendChild(marker);
 
+  textareaMirror.scrollTop = draftInput.scrollTop;
   textareaMirror.style.top = rect.top + 'px';
   textareaMirror.style.left = rect.left + 'px';
 
@@ -155,10 +234,23 @@ function hideCommentPopup() {
   currentSelection = null;
 }
 
+function getSelectionText(start, end) {
+  return draftInput.value.substring(start, end).replace(/^\s+|\s+$/g, '');
+}
+
 function showCommentPopup() {
   const start = draftInput.selectionStart;
   const end = draftInput.selectionEnd;
-  const text = draftInput.value.substring(start, end).trim();
+
+  if (start === end) {
+    if (!commentPopup.hidden && currentSelection) {
+      return;
+    }
+    hideCommentPopup();
+    return;
+  }
+
+  const text = getSelectionText(start, end);
 
   if (!text) {
     hideCommentPopup();
@@ -171,10 +263,33 @@ function showCommentPopup() {
   commentPopupQuote.textContent = preview;
 
   positionCommentPopup(getSelectionAnchor(start, end));
+  commentInput.focus();
+}
+
+function debounce(fn, ms) {
+  var timer;
+  return function () {
+    clearTimeout(timer);
+    timer = setTimeout(fn, ms);
+  };
 }
 
 function handleSelection() {
   requestAnimationFrame(showCommentPopup);
+}
+
+var repositionPopup = debounce(function () {
+  if (!commentPopup.hidden && currentSelection) {
+    positionCommentPopup(getSelectionAnchor(currentSelection.start, currentSelection.end));
+  }
+}, 80);
+
+function clearCommentsDrawer() {
+  commentsList.innerHTML = '';
+  const empty = document.createElement('p');
+  empty.className = 'drawer__empty';
+  empty.textContent = 'Brak komentarzy. Zaznacz fragment w buforze.';
+  commentsList.appendChild(empty);
 }
 
 function addCommentToDrawer(selectionText, commentText) {
@@ -205,23 +320,91 @@ function addCommentToDrawer(selectionText, commentText) {
   commentsList.scrollTop = commentsList.scrollHeight;
 }
 
-function sendComment() {
+function clearDraftSelection() {
+  const pos = draftInput.selectionEnd;
+  draftInput.setSelectionRange(pos, pos);
+}
+
+async function sendComment() {
   if (!currentSelection) {
     return;
   }
 
+  const selectionText = currentSelection.text;
   const commentText = commentInput.value.trim();
   if (!commentText) {
     commentInput.focus();
     return;
   }
 
-  addCommentToDrawer(currentSelection.text, commentText);
-  commentInput.value = '';
-  hideCommentPopup();
+  const text = draftInput.value.trim();
+  const payload = Object.assign({
+    comment: commentText,
+    selection: selectionText,
+  }, getWytycznePayload());
+
+  if (currentDraftFile) {
+    payload.file = currentDraftFile;
+  }
+
+  if (text) {
+    payload.text = text;
+  } else if (!currentDraftFile) {
+    setStatus('[ERR] buffer empty // brak tekstu do utworzenia draftu', 'error');
+    return;
+  }
+
+  commentSendBtn.disabled = true;
+
+  try {
+    let response = await fetch(COMMENT_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.status === 404 && payload.file && text) {
+      currentDraftFile = null;
+      delete payload.file;
+      response = await fetch(COMMENT_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    if (!response.ok) {
+      const errData = await response.json().catch(function () {
+        return {};
+      });
+      throw new Error(errData.error || 'HTTP ' + response.status);
+    }
+
+    const data = await response.json();
+    currentDraftFile = data.file;
+    setDraftPath(data.draft_path);
+    if (data.created) {
+      setStatus('[OK] draft + comment // ' + data.file, 'success');
+    }
+
+    addCommentToDrawer(selectionText, commentText);
+    commentInput.value = '';
+    clearDraftSelection();
+    hideCommentPopup();
+    draftInput.focus();
+  } catch (err) {
+    setStatus('[ERR] comment uplink failed // ' + err.message, 'error');
+  } finally {
+    commentSendBtn.disabled = false;
+  }
 }
 
 sendBtn.addEventListener('click', sendDraft);
+aiBtn.addEventListener('click', sendAi);
 
 draftInput.addEventListener('keydown', function (e) {
   if (e.ctrlKey && e.key === 'Enter') {
@@ -231,24 +414,23 @@ draftInput.addEventListener('keydown', function (e) {
 });
 
 draftInput.addEventListener('mouseup', handleSelection);
+draftInput.addEventListener('select', handleSelection);
 draftInput.addEventListener('keyup', function (e) {
   if (e.shiftKey || e.key === 'Shift' || e.key.startsWith('Arrow')) {
     handleSelection();
   }
 });
 
-draftInput.addEventListener('scroll', function () {
-  if (!commentPopup.hidden) {
-    showCommentPopup();
-  }
-});
+draftInput.addEventListener('scroll', repositionPopup);
 
 commentSendBtn.addEventListener('click', sendComment);
 
 commentInput.addEventListener('keydown', function (e) {
   if (e.ctrlKey && e.key === 'Enter') {
     e.preventDefault();
+    e.stopPropagation();
     sendComment();
+    return;
   }
   e.stopPropagation();
 });
@@ -266,8 +448,4 @@ document.addEventListener('mousedown', function (e) {
   }
 });
 
-window.addEventListener('resize', function () {
-  if (!commentPopup.hidden) {
-    showCommentPopup();
-  }
-});
+window.addEventListener('resize', repositionPopup);
